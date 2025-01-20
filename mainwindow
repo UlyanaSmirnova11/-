@@ -1,0 +1,583 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include <QGraphicsScene>
+#include <QGraphicsPixmapItem>
+#include <QPixmap>
+#include <QTableView>
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    db = new Database();
+    if (!db->createDatabase()) {
+        close();
+    }
+
+    loadUsers();
+    loadAllPosts(); // Загружаем все посты при запуске приложения
+    currentUserId = -1; // Инициализация переменной для хранения ID текущего пользователя
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+    delete db;
+}
+
+void MainWindow::on_create_user_clicked() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Create User");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelName = new QLabel("Name:", &dialog);
+    QLineEdit *lineEditName = new QLineEdit(&dialog);
+
+    QLabel *labelEmail = new QLabel("Email:", &dialog);
+    QLineEdit *lineEditEmail = new QLineEdit(&dialog);
+
+    QPushButton *buttonSave = new QPushButton("Save", &dialog);
+
+    layout.addWidget(labelName);
+    layout.addWidget(lineEditName);
+    layout.addWidget(labelEmail);
+    layout.addWidget(lineEditEmail);
+    layout.addWidget(buttonSave);
+
+    connect(buttonSave, &QPushButton::clicked, [&]() {
+        QString name = lineEditName->text();
+        QString email = lineEditEmail->text();
+
+        if (name.isEmpty() || email.isEmpty()) {
+            QMessageBox::warning(&dialog, tr("Input Error"),
+                                 tr("Name and Email fields cannot be empty."));
+            return;
+        }
+
+        if (db->addUser(name, email)) {
+            QMessageBox::information(&dialog, tr("Success"),
+                                     tr("User added successfully."));
+            dialog.accept();
+            loadUsers();
+        }
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::on_input_user_clicked() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Select User");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelUser = new QLabel("Select User:", &dialog);
+    QComboBox *comboUser = new QComboBox(&dialog);
+
+    QPushButton *buttonSelect = new QPushButton("Select", &dialog);
+
+    layout.addWidget(labelUser);
+    layout.addWidget(comboUser);
+    layout.addWidget(buttonSelect);
+
+    // Заполняем комбобокс пользователями
+    QSqlQueryModel *usersModel = db->getUsersModel();
+    for (int i = 0; i < usersModel->rowCount(); ++i) {
+        QSqlRecord record = usersModel->record(i);
+        comboUser->addItem(record.value("username").toString(), record.value("user_id").toInt());
+    }
+
+    connect(buttonSelect, &QPushButton::clicked, [&, comboUser]() {
+        int userIndex = comboUser->currentIndex();
+        if (userIndex == -1) {
+            QMessageBox::warning(&dialog, tr("Selection Error"),
+                                 tr("Please select a user from the list."));
+            return;
+        }
+
+        int user_id = comboUser->itemData(userIndex).toInt();
+        currentUserId = user_id; // Сохраняем ID текущего пользователя
+        displayUserDetails(userIndex);
+        loadUserPosts(user_id); // Загружаем посты пользователя
+        loadLikedPosts(user_id); // Загружаем понравившиеся посты пользователя
+
+        // Загрузка и отображение изображения пользователя
+        QString imagePath = ":avatar.png"; // Убедитесь, что путь соответствует пути в resources.qrc
+        QPixmap pixmap(imagePath);
+        pixmap = pixmap.scaled(ui->avatar_user_3->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        ui->avatar_user_3->setScene(new QGraphicsScene(this));
+        ui->avatar_user_3->scene()->addPixmap(pixmap);
+        ui->avatar_user_3->setSceneRect(pixmap.rect());
+        ui->avatar_user_3->show();
+
+        dialog.accept();
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::on_exit_3_clicked() {
+    clearUserDetails();
+    ui->post_user->setModel(nullptr); // Очистка таблицы постов
+    ui->post_like_user->setModel(nullptr); // Очистка таблицы понравившихся постов
+    currentUserId = -1; // Сброс ID текущего пользователя
+
+    // Очистка QGraphicsView
+    ui->avatar_user_3->setScene(new QGraphicsScene(this));
+    ui->avatar_user_3->scene()->clear();
+    ui->avatar_user_3->show();
+}
+
+void MainWindow::displayUserDetails(int row) {
+    QSqlRecord record = db->getUsersModel()->record(row);
+    ui->line_name_3->setText(record.value("username").toString());
+    ui->line_email_3->setText(record.value("email").toString());
+}
+
+void MainWindow::clearUserDetails() {
+    ui->line_name_3->clear();
+    ui->line_email_3->clear();
+}
+
+void MainWindow::loadUsers() {
+    db->getUsersModel()->select();
+}
+
+void MainWindow::on_add_posts_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Create Post");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelTitle = new QLabel("Title:", &dialog);
+    QLineEdit *lineEditTitle = new QLineEdit(&dialog);
+
+    QLabel *labelContent = new QLabel("Content:", &dialog);
+    QTextEdit *textEditContent = new QTextEdit(&dialog);
+
+    QLabel *labelTheme = new QLabel("Theme:", &dialog);
+    QLineEdit *lineEditTheme = new QLineEdit(&dialog);
+
+    QPushButton *buttonSave = new QPushButton("Save", &dialog);
+
+    layout.addWidget(labelTitle);
+    layout.addWidget(lineEditTitle);
+    layout.addWidget(labelContent);
+    layout.addWidget(textEditContent);
+    layout.addWidget(labelTheme);
+    layout.addWidget(lineEditTheme);
+    layout.addWidget(buttonSave);
+
+    connect(buttonSave, &QPushButton::clicked, [&]() {
+        QString title = lineEditTitle->text();
+        QString content = textEditContent->toPlainText();
+        QString themeName = lineEditTheme->text();
+
+        if (title.isEmpty() || content.isEmpty() || themeName.isEmpty()) {
+            QMessageBox::warning(&dialog, tr("Input Error"),
+                                 tr("Title, Content, and Theme fields cannot be empty."));
+            return;
+        }
+
+        // Сохраняем тему в базе данных
+        int themeId = db->addTheme(currentUserId, themeName);
+        if (themeId == -1) {
+            QMessageBox::critical(&dialog, tr("Database Error"),
+                                  tr("Failed to add theme."));
+            return;
+        }
+
+        // Сохраняем пост в базе данных
+        if (db->addPost(currentUserId, title, content, themeId)) {
+            QMessageBox::information(&dialog, tr("Success"),
+                                     tr("Post added successfully."));
+            dialog.accept();
+            loadAllPosts(); // Обновляем таблицу всех постов
+            loadUserPosts(currentUserId); // Обновляем таблицу постов пользователя
+        }
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::loadUserPosts(int userId) {
+    QSqlQueryModel *model = new QSqlQueryModel(this);
+    model->setQuery(QString("SELECT p.post_id, p.post_title, p.content, p.created_at, t.theme_name "
+                            "FROM Posts p "
+                            "JOIN Themes t ON p.theme_id = t.theme_id "
+                            "WHERE p.user_id = %1").arg(userId));
+    ui->post_user->setModel(model);
+    ui->post_user->show();
+}
+
+void MainWindow::loadAllPosts() {
+    QSqlQueryModel *model = new QSqlQueryModel(this);
+    model->setQuery("SELECT p.post_id, p.post_title, p.content, p.created_at, u.username "
+                    "FROM Posts p "
+                    "JOIN Users u ON p.user_id = u.user_id");
+    ui->all_posts->setModel(model);
+    ui->all_posts->show();
+}
+
+void MainWindow::loadLikedPosts(int userId) {
+    QSqlQueryModel *model = new QSqlQueryModel(this);
+    model->setQuery(QString("SELECT p.post_id, p.post_title, p.content, p.created_at, u.username "
+                            "FROM Posts p "
+                            "JOIN Users u ON p.user_id = u.user_id "
+                            "JOIN Likes l ON p.post_id = l.post_id "
+                            "WHERE l.user_id = %1").arg(userId));
+    ui->post_like_user->setModel(model);
+    ui->post_like_user->show();
+}
+
+void MainWindow::on_like_post_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QItemSelectionModel *selectionModel = ui->all_posts->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+
+    if (db->addLike(currentUserId, postId)) {
+        QMessageBox::information(this, tr("Success"),
+                                 tr("Post liked successfully."));
+        loadLikedPosts(currentUserId); // Обновляем таблицу понравившихся постов
+    } else {
+        QMessageBox::critical(this, tr("Database Error"),
+                              tr("Failed to like the post."));
+    }
+}
+
+void MainWindow::on_delete_post_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QItemSelectionModel *selectionModel = ui->post_user->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+
+    if (db->deletePost(postId)) {
+        QMessageBox::information(this, tr("Success"),
+                                 tr("Post deleted successfully."));
+        loadUserPosts(currentUserId); // Обновляем таблицу постов пользователя
+    } else {
+        QMessageBox::critical(this, tr("Database Error"),
+                              tr("Failed to delete the post."));
+    }
+}
+
+void MainWindow::on_edit_post_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QItemSelectionModel *selectionModel = ui->post_user->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+    QString currentTitle = index.sibling(index.row(), 1).data().toString();
+    QString currentContent = index.sibling(index.row(), 2).data().toString();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Edit Post");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelTitle = new QLabel("Title:", &dialog);
+    QLineEdit *lineEditTitle = new QLineEdit(currentTitle, &dialog);
+
+    QLabel *labelContent = new QLabel("Content:", &dialog);
+    QTextEdit *textEditContent = new QTextEdit(currentContent, &dialog);
+
+    QPushButton *buttonSave = new QPushButton("Save", &dialog);
+
+    layout.addWidget(labelTitle);
+    layout.addWidget(lineEditTitle);
+    layout.addWidget(labelContent);
+    layout.addWidget(textEditContent);
+    layout.addWidget(buttonSave);
+
+    connect(buttonSave, &QPushButton::clicked, [&, postId, lineEditTitle, textEditContent]() {
+        QString title = lineEditTitle->text();
+        QString content = textEditContent->toPlainText();
+
+        if (title.isEmpty() || content.isEmpty()) {
+            QMessageBox::warning(&dialog, tr("Input Error"),
+                                 tr("Title and Content fields cannot be empty."));
+            return;
+        }
+
+        if (db->updatePost(postId, title, content)) {
+            QMessageBox::information(&dialog, tr("Success"),
+                                     tr("Post updated successfully."));
+            dialog.accept();
+            loadUserPosts(currentUserId); // Обновляем таблицу постов пользователя
+        } else {
+            QMessageBox::critical(&dialog, tr("Database Error"),
+                                  tr("Failed to update the post."));
+        }
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::on_delete_like_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QItemSelectionModel *selectionModel = ui->post_like_user->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a liked post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a liked post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+
+    if (db->deleteLike(currentUserId, postId)) {
+        QMessageBox::information(this, tr("Success"),
+                                 tr("Like deleted successfully."));
+        loadLikedPosts(currentUserId); // Обновляем таблицу понравившихся постов
+    } else {
+        QMessageBox::critical(this, tr("Database Error"),
+                              tr("Failed to delete the like."));
+    }
+}
+
+void MainWindow::on_edit_user_3_clicked()
+{
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QSqlRecord record = db->getUsersModel()->record(currentUserId - 1);
+    QString currentName = record.value("username").toString();
+    QString currentEmail = record.value("email").toString();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Edit User");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelName = new QLabel("Name:", &dialog);
+    QLineEdit *lineEditName = new QLineEdit(currentName, &dialog);
+
+    QLabel *labelEmail = new QLabel("Email:", &dialog);
+    QLineEdit *lineEditEmail = new QLineEdit(currentEmail, &dialog);
+
+    QPushButton *buttonSave = new QPushButton("Save", &dialog);
+
+    layout.addWidget(labelName);
+    layout.addWidget(lineEditName);
+    layout.addWidget(labelEmail);
+    layout.addWidget(lineEditEmail);
+    layout.addWidget(buttonSave);
+
+    connect(buttonSave, &QPushButton::clicked, [&, lineEditName, lineEditEmail]() {
+        QString name = lineEditName->text();
+        QString email = lineEditEmail->text();
+
+        if (name.isEmpty() || email.isEmpty()) {
+            QMessageBox::warning(&dialog, tr("Input Error"),
+                                 tr("Name and Email fields cannot be empty."));
+            return;
+        }
+
+        if (db->updateUser(currentUserId, name, email)) {
+            QMessageBox::information(&dialog, tr("Success"),
+                                     tr("User updated successfully."));
+            dialog.accept();
+            displayUserDetails(currentUserId - 1); // Обновляем отображение данных пользователя
+        } else {
+            QMessageBox::critical(&dialog, tr("Database Error"),
+                                  tr("Failed to update the user."));
+        }
+    });
+
+    dialog.exec();
+}
+
+void MainWindow::on_delete_user_3_clicked()
+{
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    if (QMessageBox::question(this, tr("Confirmation"),
+                              tr("Are you sure you want to delete this user?"),
+                              QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+        if (db->deleteUser(currentUserId)) {
+            QMessageBox::information(this, tr("Success"),
+                                     tr("User deleted successfully."));
+            clearUserDetails();
+            ui->post_user->setModel(nullptr); // Очистка таблицы постов
+            ui->post_like_user->setModel(nullptr); // Очистка таблицы понравившихся постов
+            currentUserId = -1; // Сброс ID текущего пользователя
+            loadUsers(); // Обновляем список пользователей
+        } else {
+            QMessageBox::critical(this, tr("Database Error"),
+                                  tr("Failed to delete the user."));
+        }
+    }
+}
+
+void MainWindow::on_view_coments_post_clicked() {
+    QItemSelectionModel *selectionModel = ui->all_posts->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("View Comments");
+
+    QVBoxLayout layout(&dialog);
+
+    QTableView *commentsTable = new QTableView(&dialog);
+    commentsTable->setModel(db->getCommentsModel(postId));
+
+    layout.addWidget(commentsTable);
+
+    dialog.exec();
+}
+
+void MainWindow::on_comment_post_clicked() {
+    if (currentUserId == -1) {
+        QMessageBox::warning(this, tr("User Error"),
+                             tr("Please select a user first."));
+        return;
+    }
+
+    QItemSelectionModel *selectionModel = ui->all_posts->selectionModel();
+    if (!selectionModel->hasSelection()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndexList selectedRows = selectionModel->selectedRows();
+    if (selectedRows.isEmpty()) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select a post from the list."));
+        return;
+    }
+
+    QModelIndex index = selectedRows.first();
+    int postId = index.sibling(index.row(), 0).data().toInt();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Add Comment");
+
+    QVBoxLayout layout(&dialog);
+
+    QLabel *labelComment = new QLabel("Comment:", &dialog);
+    QTextEdit *textEditComment = new QTextEdit(&dialog);
+
+    QPushButton *buttonSave = new QPushButton("Save", &dialog);
+
+    layout.addWidget(labelComment);
+    layout.addWidget(textEditComment);
+    layout.addWidget(buttonSave);
+
+    connect(buttonSave, &QPushButton::clicked, [&, postId, textEditComment]() {
+        QString comment = textEditComment->toPlainText();
+
+        if (comment.isEmpty()) {
+            QMessageBox::warning(&dialog, tr("Input Error"),
+                                 tr("Comment field cannot be empty."));
+            return;
+        }
+
+        if (db->addComment(currentUserId, postId, comment)) {
+            QMessageBox::information(&dialog, tr("Success"),
+                                     tr("Comment added successfully."));
+            dialog.accept();
+        } else {
+            QMessageBox::critical(&dialog, tr("Database Error"),
+                                  tr("Failed to add the comment."));
+        }
+    });
+
+    dialog.exec();
+}
