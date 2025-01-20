@@ -1,0 +1,235 @@
+#include "database.h"
+
+Database::Database()
+{
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("users.db");
+    if (!db.open()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              db.lastError().text());
+    }
+
+    createTables();
+
+    usersModel = new QSqlTableModel(nullptr, db);
+    usersModel->setTable("Users");
+    usersModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
+    usersModel->select();
+
+    themesModel = new QSqlTableModel(nullptr, db);
+    themesModel->setTable("Themes");
+    themesModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
+    themesModel->select();
+}
+
+Database::~Database()
+{
+    db.close();
+}
+
+bool Database::createDatabase() {
+    return db.isOpen();
+}
+
+bool Database::addUser(const QString &name, const QString &email) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO Users (username, email) VALUES (:name, :email)");
+    query.bindValue(":name", name);
+    query.bindValue(":email", email);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+int Database::addTheme(int userId, const QString &themeName) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO Themes (user_id, theme_name) VALUES (:user_id, :theme_name)");
+    query.bindValue(":user_id", userId);
+    query.bindValue(":theme_name", themeName);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return -1;
+    }
+    return query.lastInsertId().toInt();
+}
+
+bool Database::addPost(int userId, const QString &title, const QString &content, int themeId) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO Posts (user_id, post_title, content, theme_id) VALUES (:user_id, :title, :content, :theme_id)");
+    query.bindValue(":user_id", userId);
+    query.bindValue(":title", title);
+    query.bindValue(":content", content);
+    query.bindValue(":theme_id", themeId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::addLike(int userId, int postId) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO Likes (user_id, post_id) VALUES (:user_id, :post_id)");
+    query.bindValue(":user_id", userId);
+    query.bindValue(":post_id", postId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::deletePost(int postId) {
+    QSqlQuery query;
+    query.prepare("DELETE FROM Posts WHERE post_id = :post_id");
+    query.bindValue(":post_id", postId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::updatePost(int postId, const QString &title, const QString &content) {
+    QSqlQuery query;
+    query.prepare("UPDATE Posts SET post_title = :title, content = :content WHERE post_id = :post_id");
+    query.bindValue(":title", title);
+    query.bindValue(":content", content);
+    query.bindValue(":post_id", postId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::deleteLike(int userId, int postId) {
+    QSqlQuery query;
+    query.prepare("DELETE FROM Likes WHERE user_id = :user_id AND post_id = :post_id");
+    query.bindValue(":user_id", userId);
+    query.bindValue(":post_id", postId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::deleteUser(int userId) {
+    QSqlQuery query;
+    query.prepare("DELETE FROM Users WHERE user_id = :user_id");
+    query.bindValue(":user_id", userId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::updateUser(int userId, const QString &name, const QString &email) {
+    QSqlQuery query;
+    query.prepare("UPDATE Users SET username = :name, email = :email WHERE user_id = :user_id");
+    query.bindValue(":name", name);
+    query.bindValue(":email", email);
+    query.bindValue(":user_id", userId);
+
+    if (!query.exec()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::addComment(int userId, int postId, const QString &comment) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO Comments (post_id, user_id, comment_text) VALUES (:postId, :userId, :comment)");
+    query.bindValue(":postId", postId);
+    query.bindValue(":userId", userId);
+    query.bindValue(":comment", comment);
+    return query.exec();
+}
+
+QSqlQueryModel* Database::getCommentsModel(int postId) {
+    QSqlQueryModel *model = new QSqlQueryModel();
+    model->setQuery(QString("SELECT c.comment_id, c.comment_text, c.created_at, u.username "
+                            "FROM Comments c "
+                            "JOIN Users u ON c.user_id = u.user_id "
+                            "WHERE c.post_id = %1").arg(postId));
+    return model;
+}
+
+QSqlTableModel* Database::getUsersModel() {
+    return usersModel;
+}
+
+QSqlTableModel* Database::getThemesModel() {
+    return themesModel;
+}
+
+void Database::createTables() {
+    QSqlQuery query;
+
+    query.exec("CREATE TABLE IF NOT EXISTS Users ("
+               "user_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "username VARCHAR(50) NOT NULL,"
+               "email VARCHAR(100) UNIQUE NOT NULL,"
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+
+    query.exec("CREATE TABLE IF NOT EXISTS Themes ("
+               "theme_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "theme_name VARCHAR(50) NOT NULL,"
+               "user_id INTEGER NOT NULL,"
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE)");
+
+    query.exec("CREATE TABLE IF NOT EXISTS Posts ("
+               "post_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "user_id INTEGER NOT NULL,"
+               "content TEXT NOT NULL,"
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "theme_id INTEGER NOT NULL,"
+               "post_title VARCHAR(150) NOT NULL,"
+               "FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,"
+               "FOREIGN KEY (theme_id) REFERENCES Themes(theme_id) ON DELETE CASCADE)");
+
+    query.exec("CREATE TABLE IF NOT EXISTS Comments ("
+               "comment_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "post_id INTEGER NOT NULL,"
+               "user_id INTEGER NOT NULL,"
+               "comment_text TEXT NOT NULL,"
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "FOREIGN KEY (post_id) REFERENCES Posts(post_id) ON DELETE CASCADE,"
+               "FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE)");
+
+    query.exec("CREATE TABLE IF NOT EXISTS Likes ("
+               "like_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "post_id INTEGER NOT NULL,"
+               "user_id INTEGER NOT NULL,"
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "FOREIGN KEY (post_id) REFERENCES Posts(post_id) ON DELETE CASCADE,"
+               "FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE)");
+
+    if (query.lastError().isValid()) {
+        QMessageBox::critical(nullptr, QObject::tr("Database Error"),
+                              query.lastError().text());
+    }
+}
