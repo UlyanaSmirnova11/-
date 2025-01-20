@@ -1,0 +1,41 @@
+#ifndef DATABASE_H
+#define DATABASE_H
+
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlTableModel>
+#include <QSqlQueryModel>
+#include <QSqlError>
+#include <QMessageBox>
+
+class Database
+{
+public:
+    Database();
+    ~Database();
+
+    bool createDatabase();
+    bool addUser(const QString &name, const QString &email);
+    bool addPost(int userId, const QString &title, const QString &content, int themeId);
+    int addTheme(int userId, const QString &themeName);
+    bool addLike(int userId, int postId);
+    bool deletePost(int postId);
+    bool updatePost(int postId, const QString &title, const QString &content);
+    bool deleteLike(int userId, int postId); // Новый метод для удаления лайка
+    bool deleteUser(int userId); // Новый метод для удаления пользователя
+    bool updateUser(int userId, const QString &name, const QString &email); // Новый метод для обновления данных пользователя
+    bool addComment(int userId, int postId, const QString &comment);
+    QSqlQueryModel* getCommentsModel(int postId);
+    QSqlTableModel* getUsersModel();
+    QSqlTableModel* getThemesModel();
+
+
+
+private:
+    QSqlDatabase db;
+    QSqlTableModel *usersModel;
+    QSqlTableModel *themesModel;
+    void createTables();
+};
+
+#endif // DATABASE_H
