@@ -1,0 +1,67 @@
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
+
+#include <QMainWindow>
+#include <QSqlTableModel>
+#include <QSqlQueryModel>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QGraphicsView>
+#include <QGraphicsScene>
+#include <QPixmap>
+#include <QItemSelectionModel>
+#include <QSqlRecord>
+#include <QSqlDatabase>
+#include "database.h"
+#include <QTextEdit>
+
+QT_BEGIN_NAMESPACE
+namespace Ui {
+class MainWindow;
+}
+QT_END_NAMESPACE
+
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
+
+private slots:
+    void on_create_user_clicked();
+    void loadUsers();
+    void on_input_user_clicked();
+    void on_exit_3_clicked();
+    void on_add_posts_clicked();
+    void on_like_post_clicked();
+    void on_delete_post_clicked();
+    void on_edit_post_clicked();
+    void on_delete_like_clicked();
+    void on_edit_user_3_clicked();
+    void on_delete_user_3_clicked();
+    void on_view_coments_post_clicked(); // Новый слот для обработки нажатия кнопки "Посмотреть комментарии"
+    void on_comment_post_clicked(); // Новый слот для обработки нажатия кнопки "Оставить комментарий"
+
+private:
+    Ui::MainWindow *ui;
+    Database *db;
+    void displayUserDetails(int row);
+    void clearUserDetails();
+    int currentUserId; // Переменная для хранения ID текущего пользователя
+    void loadUserPosts(int userId); // Метод для загрузки постов пользователя
+    void loadAllPosts(); // Метод для загрузки всех постов
+    void loadLikedPosts(int userId); // Метод для загрузки понравившихся постов пользователя
+};
+
+#endif // MAINWINDOW_H
