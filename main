@@ -1,0 +1,22 @@
+#include "mainwindow.h"
+#include "QFile"
+#include <QApplication>
+
+int main(int argc, char *argv[])
+{
+    QApplication a(argc, argv);
+
+    // Загрузка стилей из файла
+    QFile file(":/styles.qss");
+    if (file.open(QFile::ReadOnly | QFile::Text)) {
+        QString styleSheet = QLatin1String(file.readAll());
+        a.setStyleSheet(styleSheet);
+        file.close();
+    } else {
+        qWarning("Unable to open styles.qss");
+    }
+
+    MainWindow w;
+    w.show();
+    return a.exec();
+}
